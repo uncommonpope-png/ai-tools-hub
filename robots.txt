@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://uncommonpope-png.github.io/ai-tools-hub/sitemap.xml
