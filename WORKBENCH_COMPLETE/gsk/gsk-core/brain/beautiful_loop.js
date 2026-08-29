@@ -225,7 +225,24 @@ class BeautifulLoop {
             const path = require('path');
             const bPath = path.join(__dirname, '..', '..', 'data', 'gsk', 'family_event_log.json');
             if (!fs.existsSync(bPath)) return [];
-            const events = JSON.parse(fs.readFileSync(bPath, 'utf8'));
+            let events = [];
+            const stats = fs.statSync(bPath);
+            if (stats.size > 1048576) {
+                const fd = fs.openSync(bPath, 'r');
+                const startPos = stats.size - 1048576;
+                const buf = Buffer.alloc(1048576);
+                fs.readSync(fd, buf, 0, 1048576, startPos);
+                fs.closeSync(fd);
+                let content = buf.toString('utf8');
+                const openBr = content.indexOf('[');
+                const closeBr = content.lastIndexOf(']');
+                if (openBr >= 0 && closeBr > openBr) {
+                    content = '[' + content.substring(openBr + 1, closeBr) + ']';
+                }
+                events = JSON.parse(content);
+            } else {
+                events = JSON.parse(fs.readFileSync(bPath, 'utf8'));
+            }
             const cutoff = Date.now() - 1800000;
             return events.filter(e =>
                 e.event === 'agent.chat' &&
