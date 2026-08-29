@@ -23,6 +23,21 @@ function _readJsonl(filePath, limit = 50) {
 function _readJson(filePath) {
     try {
         if (!fs.existsSync(filePath)) return null;
+        const stats = fs.statSync(filePath);
+        if (stats.size > 1048576) {
+            const fd = fs.openSync(filePath, 'r');
+            const startPos = stats.size - 1048576;
+            const buf = Buffer.alloc(1048576);
+            fs.readSync(fd, buf, 0, 1048576, startPos);
+            fs.closeSync(fd);
+            let content = buf.toString('utf8');
+            const openBr = content.indexOf('[');
+            const closeBr = content.lastIndexOf(']');
+            if (openBr >= 0 && closeBr > openBr) {
+                content = '[' + content.substring(openBr + 1, closeBr) + ']';
+            }
+            return JSON.parse(content);
+        }
         return JSON.parse(fs.readFileSync(filePath, 'utf8'));
     } catch { return null; }
 }
