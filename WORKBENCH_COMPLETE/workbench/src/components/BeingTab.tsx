@@ -38,6 +38,16 @@ type BusEvent = {
   data: Record<string, unknown>;
 };
 
+type ReasoningEvent = {
+  event_id?: string;
+  type: "think" | "tool_call" | "tool_result" | "shell" | "insight" | "goal" | "response";
+  agent: string;
+  content: string;
+  details?: Record<string, unknown>;
+  timestamp: number;
+  ts?: number;
+};
+
 type ReasonResult = {
   answer: string;
   source: string;
@@ -103,6 +113,10 @@ export function BeingTab({ accentColor }: { accentColor: string }) {
   const [mode, setMode] = useState<"auto" | "memory" | "witness" | "soul">("auto");
   const [expanded, setExpanded] = useState<Record<string, boolean>>({ brain: true, memories: true, session: false, atlas: true, gskArsenal: false });
 
+  const [reasoningLog, setReasoningLog] = useState<ReasoningEvent[]>([]);
+  const [thoughtWsLive, setThoughtWsLive] = useState(false);
+  const thoughtWsRef = useRef<WebSocket | null>(null);
+
   // â”€â”€ Tool Atlas + One Mouth â”€â”€
   const [atlas, setAtlas] = useState<Atlas | null>(null);
   const [useActor, setUseActor] = useState("seshat");
@@ -167,7 +181,48 @@ export function BeingTab({ accentColor }: { accentColor: string }) {
                 { type: frame.type, source: frame.source, timestamp: frame.ts, data: frame.data || {} },
                 ...prev,
               ].slice(0, 60));
+              // Also pick up think/reasoning events that GSK publishes to the bus
+              if (frame.type === "think.event" || (frame.type && ["think", "tool_call", "tool_result", "shell"].includes(frame.type))) {
+                const evt: ReasoningEvent = {
+                  type: (frame.type === "think.event" ? (frame.data?.type || "think") : frame.type) as ReasoningEvent["type"],
+                  agent: frame.source || "gsk",
+                  content: (frame.data?.content || frame.data?.content || frame.content || JSON.stringify(frame.data || {}).slice(0, 300)),
+                  details: frame.data?.details,
+                  timestamp: frame.ts || Date.now(),
+                };
+                setReasoningLog((prev) => [...prev.slice(-99), evt]);
+              }
             }
+          } catch { /* ignore */ }
+        };
+      } catch { /* ignore */ }
+    };
+    connect();
+    return () => { try { ws?.close(); } catch { /* ignore */ } if (reconn) clearTimeout(reconn); };
+  }, []);
+
+  // GSK Thought Stream â€” live reasoning, tool calls, shell commands
+  useEffect(() => {
+    let ws: WebSocket | null = null;
+    let reconn: ReturnType<typeof setTimeout> | null = null;
+    const connect = () => {
+      try {
+        ws = new WebSocket(`${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}/api/gsk/ws/thought`);
+        thoughtWsRef.current = ws;
+        ws.onopen = () => setThoughtWsLive(true);
+        ws.onclose = () => { setThoughtWsLive(false); reconn = setTimeout(connect, 3000); };
+        ws.onerror = () => { try { ws?.close(); } catch { /* ignore */ } };
+        ws.onmessage = (msg) => {
+          try {
+            const frame = JSON.parse(msg.data);
+            const evt: ReasoningEvent = {
+              type: (frame.type || "think") as ReasoningEvent["type"],
+              agent: frame.agent || frame.source || "gsk",
+              content: frame.content || frame.message || JSON.stringify(frame).slice(0, 500),
+              details: frame.details || frame.data,
+              timestamp: frame.ts || frame.timestamp || Date.now(),
+            };
+            setReasoningLog((prev) => [...prev.slice(-99), evt]);
           } catch { /* ignore */ }
         };
       } catch { /* ignore */ }
@@ -730,6 +785,71 @@ export function BeingTab({ accentColor }: { accentColor: string }) {
                 )}
               </tbody>
             </table>
+          </div>
+        </div>
+
+        {/* â”€â”€ GSK Reasoning Shell â€” LLM prompts, tool calls, shell commands â”€â”€ */}
+        <div className="mt-4 rounded-xl border border-slate-700/50 bg-slate-950/80 p-4 flex-1 flex flex-col min-h-0">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-sm font-bold uppercase tracking-wider text-slate-300">
+              GSK Reasoning Shell
+            </span>
+            {thoughtWsLive && (
+              <span className="text-[10px] text-emerald-400 flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" /> live
+              </span>
+            )}
+            <span className="text-[10px] text-slate-500 ml-auto">
+              {reasoningLog.length} reasoning events
+            </span>
+          </div>
+          <div className="flex-1 overflow-y-auto font-mono text-xs space-y-1 min-h-0" style={{ maxHeight: 400 }}>
+            {reasoningLog.length === 0 ? (
+              <div className="text-slate-600 text-center py-6">
+                No reasoning trace yet. GSK's thoughts stream in live from the thought proxy.
+              </div>
+            ) : (
+              reasoningLog.slice().reverse().map((evt, i) => {
+                const isThink = evt.type === "think";
+                const isToolCall = evt.type === "tool_call";
+                const isToolResult = evt.type === "tool_result";
+                const isShell = evt.type === "shell";
+                const isResponse = evt.type === "response";
+                const isGoal = evt.type === "goal";
+                const isInsight = evt.type === "insight";
+
+                const icon = isThink ? "ðŸ§ " : isToolCall ? "ðŸ”§" : isToolResult ? "âœ…" : isShell ? "ðŸ’»" : isResponse ? "âœ¨" : isGoal ? "ðŸŽ¯" : isInsight ? "ðŸ’¡" : "â€¢";
+
+                const borderColor = isThink ? "border-purple-500/30" : isToolCall ? "border-amber-500/30" : isToolResult ? "border-emerald-500/30" : isShell ? "border-cyan-500/30" : isResponse ? "border-pink-500/30" : isGoal ? "border-yellow-500/30" : isInsight ? "border-blue-500/30" : "border-slate-700/30";
+
+                const content = String(evt.content || "").substring(0, 300);
+
+                return (
+                  <div key={`${evt.ts || evt.timestamp}-${i}`} className={`border-l-2 pl-2 py-1 ${borderColor}`}>
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-slate-500 w-12">{icon}</span>
+                      <span className={`text-xs font-bold uppercase tracking-wider`} style={{
+                        color: isThink ? "#8B5CF6" : isToolCall ? "#F59E0B" : isToolResult ? "#10B981" : isShell ? "#06B6D4" : isResponse ? "#ec4899" : isGoal ? "#EAB308" : isInsight ? "#3B82F6" : "#64748A"
+                      }}>
+                        {evt.type}
+                      </span>
+                      <span className="text-slate-500">[{evt.agent}]</span>
+                      <span className="text-slate-600 ml-auto">{formatTime(evt.timestamp)}</span>
+                    </div>
+                    <div className="mt-0.5 text-slate-300 ml-5 whitespace-pre-wrap break-words">
+                      {content}
+                    </div>
+                    {evt.details && (
+                      <details className="ml-5 mt-1">
+                        <summary className="text-slate-500 cursor-pointer">details</summary>
+                        <pre className="text-[10px] text-slate-500 mt-1 overflow-x-auto">{JSON.stringify(evt.details, null, 2).slice(0, 500)}</pre>
+                      </details>
+                    )}
+                  </div>
+                );
+              })
+            )}
+            <div ref={logEndRef} />
           </div>
         </div>
 
