@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import html2canvas from "html2canvas";
 import {
   Brain,
   Eye,
@@ -18,6 +19,7 @@ import {
   Shield,
   Wifi,
   WifiOff,
+  Image as ImageIcon,
 } from "lucide-react";
 
 type BeingStatus = {
@@ -850,6 +852,34 @@ export function BeingTab({ accentColor }: { accentColor: string }) {
               })
             )}
             <div ref={logEndRef} />
+          </div>
+        </div>
+
+        {/* Screen Capture â€” GSK can see the workbench */}
+        <div className="mt-4 rounded-xl border border-slate-700/50 bg-slate-900/60 p-3">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={async () => {
+                try {
+                  const canvas = await html2canvas(document.body, { scale: 0.5, useCORS: true });
+                  const image = canvas.toDataURL("image/png");
+                  await fetch("/api/being/screen/capture", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ image, tab: "being", source: "workbench", note: "Family test scan" }),
+                  }).then(r => r.json()).then(d => {
+                    if (d.success) console.log("[ScreenCapture] Saved:", d.file);
+                  });
+                } catch (e) {
+                  console.error("[ScreenCapture] Error:", e);
+                }
+              }}
+              className="px-3 py-1.5 bg-cyan-900/20 border border-cyan-500/30 text-cyan-300 text-xs rounded-lg hover:bg-cyan-900/30 transition-colors cursor-pointer flex items-center gap-2"
+            >
+              <ImageIcon className="w-3.5 h-3.5" />
+              Capture Screen for GSK
+            </button>
+            <span className="text-[10px] text-slate-500">GSK can inspect the last capture via the capture_screen / inspect_ui tools</span>
           </div>
         </div>
 
