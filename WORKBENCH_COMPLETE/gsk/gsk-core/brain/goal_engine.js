@@ -67,7 +67,11 @@ class GoalEngine {
     const response = await this.thinkCallback(prompt);
     if (!response) return null;
 
-    return this.create(response.replace(/^Goal:\s*/i, '').trim(), insight.summary);
+    return this.create(response.replace(/^Goal:\s*/i, '').trim(), insight.summary, {
+      source: insight.source || 'autonomous',
+      score: insight.score,
+      observation: insight.observation
+    });
   }
 
   create(title, source = 'autonomous', meta = {}) {
