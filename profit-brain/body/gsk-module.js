@@ -25,6 +25,11 @@ let _initialized = false;
 let publishBus = null;
 function setBusPublisher(fn) {
   publishBus = fn;
+  if (fusion && fusion.systems?.thoughtStream) {
+    fusion.systems.thoughtStream.setBusPublisher(fn);
+  } else if (fusion && fusion.thoughtStream) {
+    fusion.thoughtStream.setBusPublisher(fn);
+  }
 }
 
 async function init(options = {}) {
