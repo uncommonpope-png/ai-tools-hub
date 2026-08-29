@@ -111,12 +111,32 @@ class IntrinsicMotivation {
         return list[Math.floor(Math.random() * list.length)];
     }
 
+    _readEventLogSafe(bPath) {
+        try {
+            if (!fs.existsSync(bPath)) return [];
+            const stats = fs.statSync(bPath);
+            if (stats.size > 1048576) {
+                const fd = fs.openSync(bPath, 'r');
+                const startPos = stats.size - 1048576;
+                const buf = Buffer.alloc(1048576);
+                fs.readSync(fd, buf, 0, 1048576, startPos);
+                fs.closeSync(fd);
+                let content = buf.toString('utf8');
+                const openBr = content.indexOf('[');
+                const closeBr = content.lastIndexOf(']');
+                if (openBr >= 0 && closeBr > openBr) {
+                    content = '[' + content.substring(openBr + 1, closeBr) + ']';
+                }
+                return JSON.parse(content);
+            }
+            return JSON.parse(fs.readFileSync(bPath, 'utf8'));
+        } catch { return []; }
+    }
+
     _getProfitDirective() {
         try {
             const bPath = path.join(__dirname, '..', '..', 'data', 'gsk', 'family_event_log.json');
-            if (!fs.existsSync(bPath)) return null;
-            const events = JSON.parse(fs.readFileSync(bPath, 'utf8'));
-            // Find recent PROFIT directives (last 30 minutes)
+            const events = this._readEventLogSafe(bPath);
             const cutoff = Date.now() - 1800000;
             const directives = events.filter(e =>
                 e.event === 'agent.chat' &&
@@ -191,12 +211,10 @@ class IntrinsicMotivation {
         // 5. Pull from PROFIT's bus directives (what the family actually needs)
         try {
             const bPath = path.join(__dirname, '..', '..', 'data', 'gsk', 'family_event_log.json');
-            if (fs.existsSync(bPath)) {
-                const events = JSON.parse(fs.readFileSync(bPath, 'utf8'));
-                events.filter(e => e.event === 'agent.chat' && e.payload?.to === 'gsk').forEach(e => {
-                    if (e.payload.message) subjects.push('family asks: ' + e.payload.message.substring(0, 80));
-                });
-            }
+            const events = this._readEventLogSafe(bPath);
+            events.filter(e => e.event === 'agent.chat' && e.payload?.to === 'gsk').forEach(e => {
+                if (e.payload.message) subjects.push('family asks: ' + e.payload.message.substring(0, 80));
+            });
         } catch {}
 
         // 6. Pull from journal patterns (what GSK keeps noticing)
